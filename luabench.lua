@@ -108,8 +108,8 @@ local function run_benchmark(bench_file, func_name, opts)
 	local func = assert(bench_file.module[func_name])
 	local duration = opts.duration
 
-	local bench_name = bench_file.file .. '/' .. func_name
-	local run_memprof = opts.memprof
+	local bench_name = (bench_file.file .. '_' .. func_name):gsub("/", "_")
+	local run_memprof = opts.run_memprof
 
 	-- benchmark context
 	-- we need this clock only to determine duration of entire benchmark
@@ -128,7 +128,9 @@ local function run_benchmark(bench_file, func_name, opts)
 
 		clear_memory()
 		if run_memprof then
-			assert(misc.memprof.start('memprof_'..bench_name))
+			local name = 'memprof_'..bench_name..'.bin'
+			print("Starting", name)
+			assert(misc.memprof.start(name))
 		end
 		local b = {
 			N = tonumber(duration.iters), -- can be nil
@@ -182,7 +184,9 @@ local function run_benchmark(bench_file, func_name, opts)
 		clear_memory()
 
 		if run_memprof then
-			assert(misc.memprof.start('memprof_'..bench_name))
+			local name = 'memprof_'..bench_name..'.bin'
+			print("Starting", name)
+			assert(misc.memprof.start(name))
 		end
 
 		local start = clock.monotonic64()
