@@ -303,6 +303,10 @@ if not mod_name or not mod_name:endswith("luabench") then
 		:args "1"
 		:description "Run benchmark from specified paths"
 
+	parser:option "--memprofile"
+		:target "memprof"
+		:description "memory profile output file"
+
 	parser:option "-d" "--duration"
 		:target "duration"
 		:convert(function(x)

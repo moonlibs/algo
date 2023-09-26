@@ -16,7 +16,7 @@ build = {
    modules = {
       algo = "algo.lua",
       ["algo.rlist"] = "algo/rlist.lua",
-      ["algo.rmean"] = "algo/rmean.lua"
+      ["algo.rmean"] = "algo/rmean.lua",
       ["algo.heap"] = "algo/heap.lua"
    }
 }
