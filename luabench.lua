@@ -1,6 +1,7 @@
 local fio = require 'fio'
 local log = require 'log'
 local clock = require 'clock'
+local misc = require 'misc'
 
 ---@param root string
 ---@param recurse string[]
@@ -75,10 +76,10 @@ local function clear_memory()
 	local cycles = 0
 	local mem2
 	repeat
-			local mem1 = collectgarbage("count")
-			collectgarbage('collect')
-			mem2 = collectgarbage("count")
-			cycles = cycles + 1
+		local mem1 = collectgarbage("count")
+		collectgarbage('collect')
+		mem2 = collectgarbage("count")
+		cycles = cycles + 1
 	until mem2 > 0.75*mem1
 end
 
@@ -107,6 +108,9 @@ local function run_benchmark(bench_file, func_name, opts)
 	local func = assert(bench_file.module[func_name])
 	local duration = opts.duration
 
+	local bench_name = bench_file.file .. '/' .. func_name
+	local run_memprof = opts.memprof
+
 	-- benchmark context
 	-- we need this clock only to determine duration of entire benchmark
 
@@ -123,6 +127,9 @@ local function run_benchmark(bench_file, func_name, opts)
 		end
 
 		clear_memory()
+		if run_memprof then
+			assert(misc.memprof.start('memprof_'..bench_name))
+		end
 		local b = {
 			N = tonumber(duration.iters), -- can be nil
 			start = clock.monotonic64(),
@@ -135,6 +142,10 @@ local function run_benchmark(bench_file, func_name, opts)
 		loop(b.N, func, b)
 		local fin, fin_thread_cpu, fin_proc_cpu = clock.monotonic64(), clock.thread64(), clock.proc64()
 		local finish_mem = gcbytes()
+
+		if run_memprof then
+			assert(misc.memprof.stop())
+		end
 
 		clear_memory()
 		local last_mem = gcbytes()
@@ -170,6 +181,10 @@ local function run_benchmark(bench_file, func_name, opts)
 
 		clear_memory()
 
+		if run_memprof then
+			assert(misc.memprof.start('memprof_'..bench_name))
+		end
+
 		local start = clock.monotonic64()
 		local deadline = start+seconds*1e9
 
@@ -186,6 +201,10 @@ local function run_benchmark(bench_file, func_name, opts)
 
 		local fin, fin_thread_cpu, fin_proc_cpu = clock.monotonic64(), clock.thread64(), clock.proc64()
 		local finish_mem = gcbytes()
+
+		if run_memprof then
+			assert(misc.memprof.stop())
+		end
 
 		clear_memory()
 		local last_mem = gcbytes()
@@ -303,9 +322,9 @@ if not mod_name or not mod_name:endswith("luabench") then
 		:args "1"
 		:description "Run benchmark from specified paths"
 
-	parser:option "--memprofile"
-		:target "memprof"
-		:description "memory profile output file"
+	parser:flag "--memprof"
+		:target "run_memprof"
+		:description "run memory profile"
 
 	parser:option "-d" "--duration"
 		:target "duration"
