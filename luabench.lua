@@ -110,6 +110,7 @@ local function run_benchmark(bench_file, func_name, opts)
 
 	local bench_name = (bench_file.file .. '_' .. func_name):gsub("/", "_")
 	local run_memprof = opts.run_memprof
+	local run_sysprof = opts.run_sysprof
 
 	-- benchmark context
 	-- we need this clock only to determine duration of entire benchmark
@@ -132,6 +133,12 @@ local function run_benchmark(bench_file, func_name, opts)
 			print("Starting", name)
 			assert(misc.memprof.start(name))
 		end
+		if run_sysprof then
+			local name = 'sysprof_'..bench_name..'.bin'
+			print("Starting", name)
+			assert(misc.sysprof.start(name))
+		end
+
 		local b = {
 			N = tonumber(duration.iters), -- can be nil
 			start = clock.monotonic64(),
@@ -147,6 +154,9 @@ local function run_benchmark(bench_file, func_name, opts)
 
 		if run_memprof then
 			assert(misc.memprof.stop())
+		end
+		if run_sysprof then
+			assert(misc.sysprof.stop())
 		end
 
 		clear_memory()
@@ -188,6 +198,11 @@ local function run_benchmark(bench_file, func_name, opts)
 			print("Starting", name)
 			assert(misc.memprof.start(name))
 		end
+		if run_sysprof then
+			local name = 'sysprof_'..bench_name..'.bin'
+			print("Starting", name)
+			assert(misc.sysprof.start(name))
+		end
 
 		local start = clock.monotonic64()
 		local deadline = start+seconds*1e9
@@ -208,6 +223,9 @@ local function run_benchmark(bench_file, func_name, opts)
 
 		if run_memprof then
 			assert(misc.memprof.stop())
+		end
+		if run_sysprof then
+			assert(misc.sysprof.stop())
 		end
 
 		clear_memory()
@@ -329,6 +347,10 @@ if not mod_name or not mod_name:endswith("luabench") then
 	parser:flag "--memprof"
 		:target "run_memprof"
 		:description "run memory profile"
+
+	parser:flag "--sysprof"
+		:target "run_sysprof"
+		:description "run cpu profile"
 
 	parser:option "-d" "--duration"
 		:target "duration"
