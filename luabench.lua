@@ -136,7 +136,11 @@ local function run_benchmark(bench_file, func_name, opts)
 		if run_sysprof then
 			local name = 'sysprof_'..bench_name..'.bin'
 			print("Starting", name)
-			assert(misc.sysprof.start(name))
+			assert(misc.sysprof.start({
+				mode = 'C',
+				interval = 10,
+				path = name,
+			}))
 		end
 
 		local b = {
@@ -201,7 +205,11 @@ local function run_benchmark(bench_file, func_name, opts)
 		if run_sysprof then
 			local name = 'sysprof_'..bench_name..'.bin'
 			print("Starting", name)
-			assert(misc.sysprof.start(name))
+			assert(misc.sysprof.start({
+				mode = 'C',
+				interval = 10,
+				path = name,
+			}))
 		end
 
 		local start = clock.monotonic64()
@@ -310,6 +318,11 @@ local function run(args)
 			--? maybe we should create benchmark context here
 			local report = run_benchmark(bench_file, func_name, args)
 			reports[file ..'/'..func_name] = report
+
+			if args.run_sysprof then
+				local sysprof = misc.sysprof.report()
+				log.info(sysprof)
+			end
 
 			-- log.info(report)
 			print(("%s\t%s\t%s ns/op\t%.2f op/s (proc: %.2fs, thread: %.2fs) (mem: %s / %s)"):format(
