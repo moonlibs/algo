@@ -51,10 +51,14 @@ local function load_benchmark_file(file)
 	end
 
 	local funcs = {}
+	local max_name_size = 0
 	for name, func in pairs(module) do
 		if type(name) == 'string' and name:startswith('bench_') then
 			if type(func) == 'function' then
 				table.insert(funcs, name)
+				if max_name_size < #name then
+					max_name_size = #name
+				end
 			end
 		end
 	end
@@ -69,6 +73,7 @@ local function load_benchmark_file(file)
 		file = file,
 		module = module,
 		funcs = funcs,
+		max_name_size = max_name_size,
 	}
 end
 
@@ -85,6 +90,22 @@ end
 
 local function gcbytes()
 	return collectgarbage('count')*1024
+end
+
+---@param func fun()
+---@return fun()
+local function wrap(func)
+	local function tail(ok, ...)
+		if not ok then
+			log.error(...)
+			error(...)
+		else
+			return ...
+		end
+	end
+	return function(...)
+		return tail(xpcall(func, debug.traceback, ...))
+	end
 end
 
 ---@class luabench.benchmark.report
@@ -105,7 +126,7 @@ end
 ---@return luabench.benchmark.report
 local function run_benchmark(bench_file, func_name, opts)
 	-- it must not disappear
-	local func = assert(bench_file.module[func_name])
+	local func = wrap(assert(bench_file.module[func_name]))
 	local duration = opts.duration
 
 	local bench_name = (bench_file.file .. '_' .. func_name):gsub("/", "_")
@@ -298,9 +319,14 @@ local function run(args)
 	end
 
 	-- Performing init/load phase (it might fail)
+	local max_name_size = 0
 	local benchmarks = {}
 	for _, file in ipairs(files) do
 		benchmarks[file] = load_benchmark_file(file)
+		local mns = benchmarks[file].max_name_size
+		if max_name_size < mns then
+			max_name_size = mns
+		end
 	end
 
 	table.sort(files)
@@ -309,15 +335,12 @@ local function run(args)
 	-- for each benchmark-function we must create benchmark-context
 	-- but only before execution
 
-	local reports = {}
-
 	for _, file in ipairs(files) do
 		local bench_file = benchmarks[file]
 
 		for _, func_name in ipairs(bench_file.funcs) do
 			--? maybe we should create benchmark context here
 			local report = run_benchmark(bench_file, func_name, args)
-			reports[file ..'/'..func_name] = report
 
 			if args.run_sysprof then
 				local sysprof = misc.sysprof.report()
@@ -325,7 +348,7 @@ local function run(args)
 			end
 
 			-- log.info(report)
-			print(("%s\t%s\t%s ns/op\t%.2f op/s (proc: %.2fs, thread: %.2fs) (mem: %s / %s)"):format(
+			print(("%-"..max_name_size.."s".."\t%s\t%s ns/op\t%.2f op/s (proc: %.2fs, thread: %.2fs) (mem: %s / %s)"):format(
 				func_name, report.iters,
 				tonumber((report.finish - report.start) / report.iters),
 				tonumber(report.iters) / (tonumber(report.finish - report.start)/1e9),

@@ -11,15 +11,6 @@ local function insert_size(size)
 	return rl
 end
 
-local _sizes = {8, 16, 32, 64, 128, 512, 1024, 2048, 4096}
-local sizes = {}
-
-for _, size in pairs(_sizes) do
-	sizes[size] = function()
-		return insert_size(size)
-	end
-end
-
 function M.bench_rlist_creation(b)
 	for _ = 1, b.N do
 		local _ = rlist.new()
@@ -42,7 +33,7 @@ local rl8192 = insert_size(8192)
 function M.bench_rlist_traverse_8192(b)
 	for _ = 1, b.N do
 		local sum = 0
-		for _, item in rl8192:items() do
+		for _, item in rl8192:pairs() do
 			sum = sum + item.num
 		end
 	end
@@ -52,7 +43,17 @@ local rl4096 = insert_size(4096)
 function M.bench_rlist_traverse_4096(b)
 	for _ = 1, b.N do
 		local sum = 0
-		for _, item in rl4096:items() do
+		for _, item in rl4096:pairs() do
+			sum = sum + item.num
+		end
+	end
+end
+
+local rl1024 = insert_size(1024)
+function M.bench_rlist_traverse_1024(b)
+	for _ = 1, b.N do
+		local sum = 0
+		for _, item in rl1024:pairs() do
 			sum = sum + item.num
 		end
 	end

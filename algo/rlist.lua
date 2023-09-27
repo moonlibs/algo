@@ -194,13 +194,13 @@ end
 
 ---returns forward iterator over double linked list
 ---@param rlist algo.rlist
-function rlist_index.items(rlist)
+function rlist_index.pairs(rlist)
     return rlist.next, rlist, nil
 end
 
 ---returns reverse iterator over double linked list
 ---@param rlist algo.rlist
-function rlist_index.ritems(rlist)
+function rlist_index.rpairs(rlist)
     return rlist.prev, rlist, nil
 end
 

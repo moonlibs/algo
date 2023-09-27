@@ -18,10 +18,11 @@ local rlist = require 'algo.rlist'
 ---@field window integer default window size of rmean.collector
 ---@field _resolution number default resolution of rmean (in seconds)
 ---@field roller_tm algo.rmean.collector
----@field private _prev_ts number last timestamp
----@field private _running boolean
----@field private _collectors algo.rlist
----@field private _registry table<string,algo.rmean.collector.weak>
+---@field _prev_ts number last timestamp
+---@field _running boolean
+---@field _collectors algo.rlist
+---@field _registry table<string,algo.rmean.collector.weak>
+---@field _roller_f? Fiber
 
 ---@class algo.rmean.collector.weak:algo.rlist.item
 ---@field collector algo.rmean.collector weakref to collector
@@ -41,9 +42,9 @@ local rlist = require 'algo.rlist'
 ---@field _gc_hook ffi.cdata* gc-hook to track collector was gc-ed
 local collector = {}
 
-local map_mt = {__serialize='map'}
-local list_mt = { __serialize='seq' }
-local weak_mt = { __mode='v' }
+local map_mt  = { __serialize = 'map' }
+local list_mt = { __serialize = 'seq' }
+local weak_mt = { __mode = 'v' }
 
 local collector_mt = {
 	__index = collector,
@@ -97,6 +98,9 @@ local function new_zero_list(size)
 	return t
 end
 
+---@param depth number
+---@param max_value number
+---@return integer
 local function _get_depth(depth, max_value)
 	depth = tonumber(depth)
 	if depth then
@@ -122,6 +126,57 @@ local function _list_serialize(list)
 end
 
 --#endregion
+
+---fiber roller of registered collectors
+---@private
+---@param self algo.rmean
+local function rmean_roller_f(self)
+	fiber.self():set_joinable(true)
+	self._roller_f = fiber.self()
+	fiber.name("rmean/roller_f")
+	self._prev_ts = clock.time()
+	if not self.roller_tm then
+		self.roller_tm = self:collector("rmean_roller_time")
+	end
+
+	while self._running do
+		fiber.sleep(self._resolution)
+		if not self._running then break end
+		if not pcall(fiber.testcancel) then break end
+
+		local nownano = clock.time64()
+
+		local prev_ts, now = self._prev_ts, tonumber(nownano) / 1e9
+		local dt = now - prev_ts
+
+		local s = nownano
+
+		local i = 0
+		for _, cursor in self._collectors:pairs() do
+			---@cast cursor algo.rmean.collector.weak
+			i = i + 1
+			if i % 1000 == 0 then
+				fiber.yield()
+				if not pcall(fiber.testcancel) then break end
+				now = clock.time()
+				dt = now-prev_ts
+			end
+			if cursor.collector then
+				cursor.collector:roll(dt)
+			end
+		end
+
+		nownano = clock.time64()
+		now = tonumber(nownano)/1e9
+		self._prev_ts = now
+		self.roller_tm:collect((nownano-s)/1e3)
+	end
+	-- be nice and remove self-collector
+	if self.roller_tm then
+		self:free(self.roller_tm)
+		self.roller_tm._gc_hook = nil
+	end
+end
 
 ---@class algo.rmean
 local rmean_methods = {}
@@ -162,7 +217,7 @@ function rmean_methods:collector(name, window)
 	remote._rlist_item = _item
 
 	self._registry[name] = _item
-	self._collectors:add_tail(_item)
+	self._collectors:push(_item)
 
 	remote._gc_hook = ffi.gc(ffi.new('char[1]'), function()
 		pcall(self._collectors.remove, self._collectors, _item)
@@ -191,7 +246,7 @@ end
 function rmean_methods:start()
 	self._running = true
 	if not self._roller_f then
-		fiber.create(self.rmean_roller_f, self)
+		fiber.create(rmean_roller_f, self)
 	end
 end
 
@@ -243,54 +298,6 @@ function rmean_methods:free(counter)
 	counter._rlist_item = nil
 end
 
----fiber roller of registered collectors
----@private
-function rmean_methods:rmean_roller_f()
-	fiber.self():set_joinable(true)
-	self._roller_f = fiber.self()
-	fiber.name("rmean/roller_f")
-	self._prev_ts = clock.time()
-	if not self.roller_tm then
-		self.roller_tm = self:collector("rmean_roller_time")
-	end
-
-	while self._running do
-		fiber.sleep(self._resolution)
-		if not self._running then break end
-		fiber.testcancel()
-
-		local nownano = clock.time64()
-
-		local prev_ts, now = self._prev_ts, tonumber(nownano) / 1e9
-		local dt = now - prev_ts
-
-		local s = nownano
-
-		local i = 0
-		for _, cursor in self._collectors:items() do
-			---@cast cursor algo.rmean.collector.weak
-			i = i + 1
-			if i % 1000 == 0 then
-				fiber.yield()
-				now = clock.time()
-				dt = now-prev_ts
-			end
-			if cursor.collector then
-				cursor.collector:roll(dt)
-			end
-		end
-
-		nownano = clock.time64()
-		now = tonumber(nownano)/1e9
-		self._prev_ts = now
-		self.roller_tm:collect((nownano-s)/1e3)
-	end
-	-- be nice and remove self-collector
-	self._collectors:remove(self.roller_tm._rlist_item)
-	self.roller_tm._rlist_item = nil
-	self.roller_tm._gc_hook = nil
-end
-
 --#region algo.rmean.collector
 
 ---Calculates and returns mean value
@@ -333,6 +340,19 @@ function collector:max(depth)
 		end
 	end
 	return max
+end
+
+---Returns moving sum value
+---@param depth integer? depth in seconds (default=window size, [1,window size])
+---@return number? sum # can return null if no values were observed
+function collector:sum(depth)
+	depth = _get_depth(depth, self.window)
+
+	local sum = 0
+	for i = 1, depth/self._resolution do
+		sum = sum + self.sum_value[i]
+	end
+	return sum
 end
 
 ---Increments current time bucket with given value
@@ -408,8 +428,8 @@ local rmean_mt = {
 ---@return algo.rmean
 local function new(resolution, window)
 	local rmean = setmetatable({
-		resolution = resolution,
 		window = window,
+		_resolution = resolution,
 		_collectors = rlist.new(),
 		_registry = setmetatable({}, weak_mt),
 	}, rmean_mt)
@@ -420,17 +440,17 @@ end
 
 ---Defaults
 local RESOLUTION = 1
-local WINDOW = 5
+local WINDOW_SIZE = 5
 
-local default = new(RESOLUTION, WINDOW)
+local default = new(RESOLUTION, WINDOW_SIZE)
 
 return {
 	new = new,
 	default   = default,
-	collector = function(...) return default:collector(...) end,
-	reload    = function(...) return default:reload(...) end,
+	collector = function(_,...) return default:collector(...) end,
+	reload    = function(_,...) return default:reload(...) end,
 	stop      = function()    return default:stop() end,
 	getall    = function()    return default:getall() end,
-	get       = function(...) return default:get(...) end,
-	free      = function(...) return default:free(...) end,
+	get       = function(_,...) return default:get(...) end,
+	free      = function(_,...) return default:free(...) end,
 }
