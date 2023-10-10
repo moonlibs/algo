@@ -2,6 +2,28 @@ local clock = require 'clock'
 local fiber = require 'fiber'
 local ffi = require "ffi"
 local rlist = require 'algo.rlist'
+
+local math_floor = math.floor
+local math_min = math.min
+local math_max = math.max
+local setmetatable = setmetatable
+local table_new = table.new
+local tonumber = tonumber
+local type = type
+
+---Appends all k-vs from t2 to t1, if not exists in t1
+---@param t1 table?
+---@param t2 table?
+local function merge(t1, t2)
+	if type(t1) ~= 'table' or type(t2) ~= 'table' then return end
+
+	for k in pairs(t2) do
+		if t1[k] == nil then
+			t1[k] = t2[k]
+		end
+	end
+end
+
 ---Class rmean is plain-Lua implementation of Tarantool's rmean collector
 ---
 ---rmean provides window function mean with specified window size (default=5s)
@@ -32,6 +54,7 @@ local rlist = require 'algo.rlist'
 ---@field name string? name of collector
 ---@field window number window size of collector (default=5s)
 ---@field size number capacity collector (window/resolution)
+---@field label_pairs table<string,string> specified label pairs for metrics
 ---@field sum_value number[] list of sum values per second
 ---@field min_value number[] list of min values per second
 ---@field max_value number[] list of max values per second
@@ -50,9 +73,9 @@ local collector_mt = {
 	__index = collector,
 	__tostring = function(self)
 		local min, max = self:min(), self:max()
-		return ("rmean<%s:%ds> [avg:%.2f/sum:%.2f/cnt:%d/min:%s/max:%s]"):format(
+		return ("rmean<%s:%ds> [per_sec:%.2f/sum:%.2f/cnt:%d/min:%s/max:%s]"):format(
 			self.name or 'anon', self.window,
-			self:mean(),
+			self:per_second(),
 			self.total,
 			self.count,
 			min and ("%.2f"):format(min) or "null",
@@ -67,7 +90,7 @@ local collector_mt = {
 			window = self.window,
 			min = self:min(),
 			max = self:max(),
-			mean = self:mean(),
+			per_second = self:per_second(),
 		}, map_mt)
 	end
 }
@@ -79,8 +102,8 @@ local collector_mt = {
 ---@private
 ---@return number[]
 local function new_list(size)
-	size = math.floor(size)
-	local t = setmetatable(table.new(size, 0), list_mt)
+	size = math_floor(size)
+	local t = setmetatable(table_new(size, 0), list_mt)
 	return t
 end
 
@@ -104,7 +127,7 @@ end
 local function _get_depth(depth, max_value)
 	depth = tonumber(depth)
 	if depth then
-		depth = math.floor(depth)
+		depth = math_floor(depth)
 		if depth > max_value then
 			depth = max_value
 		end
@@ -136,7 +159,12 @@ local function rmean_roller_f(self)
 	fiber.name("rmean/roller_f")
 	self._prev_ts = clock.time()
 	if not self.roller_tm then
-		self.roller_tm = self:collector("rmean_roller_time")
+		self.roller_tm = self:collector("roller_time")
+		self.roller_tm:set_labels({
+			name = 'roller_time',
+			window = self.roller_tm.window,
+			unit = 'mks',
+		})
 	end
 
 	while self._running do
@@ -155,7 +183,7 @@ local function rmean_roller_f(self)
 		for _, cursor in self._collectors:pairs() do
 			---@cast cursor algo.rmean.collector.weak
 			i = i + 1
-			if i % 1000 == 0 then
+			if i % 100 == 0 then
 				fiber.yield()
 				if not pcall(fiber.testcancel) then break end
 				now = clock.time()
@@ -169,7 +197,7 @@ local function rmean_roller_f(self)
 		nownano = clock.time64()
 		now = tonumber(nownano)/1e9
 		self._prev_ts = now
-		self.roller_tm:collect((nownano-s)/1e3)
+		self.roller_tm:observe((nownano-s)/1e3)
 	end
 	-- be nice and remove self-collector
 	if self.roller_tm then
@@ -198,7 +226,7 @@ function rmean_methods:collector(name, window)
 	end
 
 	window = tonumber(window) or self.window
-	local size = math.floor(window/self._resolution)
+	local size = math_floor(window/self._resolution)
 	local remote = setmetatable({
 		name = name,
 		window = window,
@@ -206,6 +234,7 @@ function rmean_methods:collector(name, window)
 		sum_value = new_zero_list(size),
 		min_value = new_list(size),
 		max_value = new_list(size),
+		label_pairs = { name = name, window = window },
 		total = 0,
 		count = 0,
 		__version = 1,
@@ -261,18 +290,18 @@ end
 ---returns list of all registered collectors
 ---@return algo.rmean.collector[]
 function rmean_methods:getall()
-	local rv = table.new(self._collectors.count, 0)
+	local rv = table_new(self._collectors.count, 0)
 	local n = 0
 
 	setmetatable(rv, {__serialize = _list_serialize})
 
-	---@type algo.rmean.collector.weak
-	local cursor = self._collectors.first
-	while cursor do
+	for _, cursor in self._collectors:pairs() do
+		---@cast cursor algo.rmean.collector.weak
 		local t = cursor.collector
-		n = n+1
-		rv[n]=t
-		cursor = cursor.next
+		if t then
+			n = n + 1
+			rv[n] = t
+		end
 	end
 	return rv
 end
@@ -294,22 +323,53 @@ end
 ---frees collector
 ---@param counter algo.rmean.collector
 function rmean_methods:free(counter)
+	if counter._rlist_item == nil then return end
 	self._collectors:remove(counter._rlist_item)
 	counter._rlist_item = nil
 end
 
+---metrics collect hook
+function rmean_methods:collect()
+	local result = table.new(self._collectors.count*6, 0)
+	local label_pairs
+	if self.metrics_registry then
+		label_pairs = self.metrics_registry.label_pairs
+	end
+	for _, item in self._collectors:pairs() do
+		---@cast item algo.rmean.collector.weak
+		local clt = item.collector
+		if clt and clt.name ~= 'anon' then
+			for _, obs in ipairs(clt:collect()) do
+				merge(obs.label_pairs, label_pairs)
+				table.insert(result, obs)
+			end
+		end
+	end
+	return result
+end
+
+---metrics set_registry hook
+---@param metrics_registry any
+function rmean_methods:set_registry(metrics_registry)
+	self.metrics_registry = metrics_registry
+end
+
 --#region algo.rmean.collector
 
----Calculates and returns mean value
+---Calculates and returns per_second value
 ---@param depth integer? depth in seconds (default=window size, [1,window size])
 ---@return number
-function collector:mean(depth)
+function collector:per_second(depth)
 	depth = _get_depth(depth, self.window)
 	local sum = 0
 	for i = 1, depth/self._resolution do
 		sum = sum + self.sum_value[i]
 	end
 	return sum / depth
+end
+
+function collector:set_labels(label_pairs)
+	self.label_pairs = table.copy(label_pairs)
 end
 
 ---Returns moving min value
@@ -357,7 +417,7 @@ end
 
 ---Increments current time bucket with given value
 ---@param value number|uint64_t|integer64
-function collector:collect(value)
+function collector:observe(value)
 	value = tonumber(value)
 	if not value then return end
 
@@ -365,12 +425,28 @@ function collector:collect(value)
 	self.total = self.total + value
 	self.count = self.count + 1
 
-	self.min_value[0] = math.min(self.min_value[0] or value, value)
-	self.max_value[0] = math.max(self.max_value[0] or value, value)
+	self.min_value[0] = math_min(self.min_value[0] or value, value)
+	self.max_value[0] = math_max(self.max_value[0] or value, value)
 end
 
 -- just alias
-collector.inc = collector.collect
+collector.inc = collector.observe
+
+function collector:collect()
+	return {
+		{
+			metric_name = 'rmean_per_second',
+			value = self:per_second(),
+			label_pairs = self.label_pairs,
+			timestamp = fiber.time64(),
+		},
+		{ metric_name = 'rmean_sum',   value = self:sum(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+		{ metric_name = 'rmean_min',   value = self:min(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+		{ metric_name = 'rmean_max',   value = self:max(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+		{ metric_name = 'rmean_total', value = self.total,  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+		{ metric_name = 'rmean_count', value = self.count,  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+	}
+end
 
 ---Rerolls statistics
 ---@param dt number
@@ -380,7 +456,7 @@ function collector:roll(dt)
 	local min = self.min_value
 	local max = self.max_value
 	local avg = sum[0] / dt
-	local j = math.floor(self.size)
+	local j = math_floor(self.size)
 	while j > dt+0.1 do
 		if j > 0 then
 			sum[j], min[j], max[j] = sum[j-1], min[j-1], max[j-1]
@@ -423,11 +499,15 @@ local rmean_mt = {
 }
 
 ---Creates new rmean
+---@param name string name of the new rmean
 ---@param resolution number time resolution
 ---@param window number default time window
 ---@return algo.rmean
-local function new(resolution, window)
+local function new(name, resolution, window)
 	local rmean = setmetatable({
+		kind = 'gauge',
+		help = 'rmean collector',
+		name = name,
 		window = window,
 		_resolution = resolution,
 		_collectors = rlist.new(),
@@ -442,7 +522,7 @@ end
 local RESOLUTION = 1
 local WINDOW_SIZE = 5
 
-local default = new(RESOLUTION, WINDOW_SIZE)
+local default = new('default', RESOLUTION, WINDOW_SIZE)
 
 return {
 	new = new,

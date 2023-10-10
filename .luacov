@@ -1,0 +1,9 @@
+include = {
+	"algo"
+}
+
+exclude = {
+	".rocks",
+	"benchmarks",
+	"luabench",
+}

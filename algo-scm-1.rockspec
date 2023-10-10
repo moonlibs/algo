@@ -6,10 +6,25 @@ source = {
 }
 description = {
    homepage = "https://github.com/moonlibs/algo.git",
-   license = "GPL"
+   license = "GPL",
+   summary = "Collection of datastructures designed for Lua in Tarantool",
+   detailed = [[
+      Module moonlibs/algo provides set of fastest pure-lua datastructures such as
+      `heap` and `rlist`, and more complex `rmean` without any external dependencies.
+   ]],
 }
 dependencies = {
    "lua ~> 5.1"
+}
+test_dependencies = {
+   "luacheck",
+   "luatest",
+   "luacov",
+   "luacov-console",
+}
+test = {
+   type = 'command',
+   command = 'make test',
 }
 build = {
    type = "builtin",

@@ -24,10 +24,10 @@ end
 ---@field push fun(heap: algo.heap<`T`>, value: `T`)
 ---@field pop fun(heap: algo.heap<`T`>): `T`?
 ---@field update fun(heap: algo.heap<`T`>, value: `T`)
----@field update_top fun(heap: algo.heap<`T`>, value: `T`)
+---@field update_top fun(heap: algo.heap<`T`>)
 ---@field remove fun(heap: algo.heap<`T`>, value: `T`)
 ---@field remove_try fun(heap: algo.heap<`T`>, value: `T`)
----@field remove_top fun(heap: algo.heap<`T`>, value: `T`)
+---@field remove_top fun(heap: algo.heap<`T`>)
 ---@field top fun(heap: algo.heap<`T`>): `T`?
 ---@field count fun(heap: algo.heap<`T`>): number
 
