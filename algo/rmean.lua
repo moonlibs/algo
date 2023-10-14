@@ -2,6 +2,7 @@ local clock = require 'clock'
 local fiber = require 'fiber'
 local ffi = require "ffi"
 local rlist = require 'algo.rlist'
+local log   = require 'log'
 
 local math_floor = math.floor
 local math_min = math.min
@@ -170,7 +171,7 @@ local function rmean_roller_f(self)
 	while self._running do
 		fiber.sleep(self._resolution)
 		if not self._running then break end
-		if not pcall(fiber.testcancel) then break end
+		if not pcall(fiber.testcancel) or not self._running then break end
 
 		local nownano = clock.time64()
 
@@ -179,18 +180,20 @@ local function rmean_roller_f(self)
 
 		local s = nownano
 
+		local roll = collector.roll
+
 		local i = 0
+		local maxrun = self._collectors.count
 		for _, cursor in self._collectors:pairs() do
 			---@cast cursor algo.rmean.collector.weak
 			i = i + 1
-			if i % 100 == 0 then
-				fiber.yield()
-				if not pcall(fiber.testcancel) then break end
-				now = clock.time()
-				dt = now-prev_ts
+			if i > maxrun then
+				log.error("Loop detected (maybe luajit is broken?). Exiting")
+				self._running = false
+				break
 			end
 			if cursor.collector then
-				cursor.collector:roll(dt)
+				roll(cursor.collector, dt)
 			end
 		end
 
@@ -269,6 +272,7 @@ function rmean_methods:reload(counter)
 	new.total = counter.total
 	new.max_value = counter.max_value
 	new.min_value = counter.min_value
+	new.label_pairs = counter.label_pairs
 	return new
 end
 
@@ -370,6 +374,8 @@ end
 
 function collector:set_labels(label_pairs)
 	self.label_pairs = table.copy(label_pairs)
+	self.label_pairs.window = tostring(self.window)
+	self.label_pairs.name = self.name
 end
 
 ---Returns moving min value
