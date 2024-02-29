@@ -1,5 +1,42 @@
 # algo: Collection of data structures designed for Lua in Tarantool
 
+[![Coverage Status](https://coveralls.io/repos/github/moonlibs/algo/badge.svg?branch=master)](https://coveralls.io/github/moonlibs/algo?branch=master)
+
+## Status
+
+Latest release `0.1.0`
+
+## Install
+
+### Adding Library as a Dependency
+
+#### 1. Update `.rocks/config-5.1.lua`
+
+```lua
+rocks_servers = {
+    "https://moonlibs.org",
+    "https://moonlibs.github.io/rocks",
+    "https://rocks.tarantool.org",
+    -- Add any existing repositories here
+}
+```
+
+Specify `algo` as a dependency in your `rockspec` file.
+
+```lua
+dependencies = {
+  "algo ~> 0.1.0"
+}
+```
+
+Install library `algo`
+
+```bash
+tt rocks install --only-deps
+# or
+tarantoolctl rocks install --only-deps
+```
+
 ## Doubly Linked List (algo.rlist)
 
 **Key Features:**
@@ -150,7 +187,6 @@ rmean.free(my_collector)
 #### Note
 
 - The `default` rmean instance is the most preferred way to use `rmean`, as it has a window size of 5 seconds, aligning with the common practice in Tarantool.
-
 
 #### Collector methods
 
