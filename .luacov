@@ -3,7 +3,8 @@ include = {
 }
 
 exclude = {
+	"skiplist",
 	".rocks",
+	"test/",
 	"benchmarks",
-	"luabench",
 }

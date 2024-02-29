@@ -31,13 +31,12 @@ end
 ---@field top fun(heap: algo.heap<`T`>): `T`?
 ---@field count fun(heap: algo.heap<`T`>): number
 
+---Generate a new heap.
 --
--- Generate a new heap.
---
--- The implementation is targeted on as few index accesses as possible.
--- Everything what could be is stored as upvalue variables instead of as indexes
--- in a table. What couldn't be an upvalue and is used in a function more than
--- once is saved on the stack.
+---The implementation is targeted on as few index accesses as possible.
+---Everything what could be is stored as upvalue variables instead of as indexes
+---in a table. What couldn't be an upvalue and is used in a function more than
+---once is saved on the stack.
 --
 ---@param is_left_above fun(a: table, b: table): boolean
 ---@return algo.heap

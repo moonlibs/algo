@@ -42,7 +42,9 @@ local function to_rlist_item(node)
     end
 end
 
----Adds object into rlist
+---Adds object to the end of the rlist
+---
+---If given object already listed in any rlist smthing terrible will happen.
 ---@param rlist algo.rlist
 ---@param object algo.rlist.item
 function rlist_index.add_tail(rlist, object)
@@ -60,7 +62,9 @@ end
 
 rlist_index.push = rlist_index.add_tail
 
----Adds object into the head of the rlist
+---Adds object to the head of the rlist
+---
+---If given object already listed in any rlist smthing terrible will happen.
 ---@param rlist algo.rlist
 ---@param object algo.rlist.item
 function rlist_index.add_head(rlist, object)
@@ -110,7 +114,7 @@ function rlist_index.remove(rlist, object)
     return belongs_to_list
 end
 
----Removes first item from the list
+---Removes first item (if any) from the list
 ---@param rlist algo.rlist
 ---@return algo.rlist.item? item
 function rlist_index.remove_first(rlist)
@@ -134,6 +138,7 @@ end
 
 rlist_index.pop = rlist_index.remove_last
 
+---Forward generator for iterator over rlist
 ---@param rlist algo.rlist
 ---@param last algo.rlist.item
 ---@return algo.rlist.item?
@@ -146,6 +151,7 @@ function rlist_index.next(rlist, last)
     end
 end
 
+---Backward generator for iterator over rlist
 ---@param rlist algo.rlist
 ---@param last algo.rlist.item
 ---@return algo.rlist.item?
@@ -158,13 +164,17 @@ function rlist_index.prev(rlist, last)
     end
 end
 
----returns forward iterator over double linked list
+---Returns forward iterator (from head to tail) over double linked list (suitable for pairs and luafun)
+---
+---@usage for _, node in rlist:pairs() do process(node) end
 ---@param rlist algo.rlist
 function rlist_index.pairs(rlist)
     return rlist.next, rlist
 end
 
----returns reverse iterator over double linked list
+---Returns backward iterator (from tail to head) over double linked list
+---
+---@usage for _, node in rlist:rpairs() do process(node) end
 ---@param rlist algo.rlist
 function rlist_index.rpairs(rlist)
     return rlist.prev, rlist
@@ -177,7 +187,7 @@ local rlist_mt = {
 	end,
 }
 
----Creates new rlist
+---Creates new empty rlist
 ---@return algo.rlist
 local function rlist_new()
     return setmetatable({count = 0}, rlist_mt)

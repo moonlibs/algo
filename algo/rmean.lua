@@ -64,6 +64,7 @@ end
 ---@field _resolution number length in seconds of each slot
 ---@field _rlist_item algo.rmean.collector.weak weakref to link inside rlist
 ---@field _gc_hook ffi.cdata* gc-hook to track collector was gc-ed
+---@field _invalid? boolean is set to true when collector was freed from previous rmean
 local collector = {}
 
 local map_mt  = { __serialize = 'map' }
@@ -328,8 +329,10 @@ end
 ---@param counter algo.rmean.collector
 function rmean_methods:free(counter)
 	if counter._rlist_item == nil then return end
+	self._registry[counter.name] = nil
 	self._collectors:remove(counter._rlist_item)
 	counter._rlist_item = nil
+	counter._invalid = true
 end
 
 ---metrics collect hook
@@ -424,6 +427,7 @@ end
 ---Increments current time bucket with given value
 ---@param value number|uint64_t|integer64
 function collector:observe(value)
+	if self._invalid then return end
 	value = tonumber(value)
 	if not value then return end
 
@@ -435,7 +439,7 @@ function collector:observe(value)
 	self.max_value[0] = math_max(self.max_value[0] or value, value)
 end
 
--- just alias
+-- inc is alias for observe
 collector.inc = collector.observe
 
 function collector:collect()
@@ -457,6 +461,7 @@ end
 ---Rerolls statistics
 ---@param dt number
 function collector:roll(dt)
+	if self._invalid then return end
 	if dt < 0 then return end
 	local sum = self.sum_value
 	local min = self.min_value
@@ -535,6 +540,7 @@ return {
 	default   = default,
 	collector = function(_,...) return default:collector(...) end,
 	reload    = function(_,...) return default:reload(...) end,
+	start     = function()    return default:start() end,
 	stop      = function()    return default:stop() end,
 	getall    = function()    return default:getall() end,
 	get       = function(_,...) return default:get(...) end,

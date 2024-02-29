@@ -141,9 +141,4 @@ function M.bench_arr_1prcnt_create(b)
 	end
 end
 
--- function M.bench_rlist_stack_8192(b)
-
--- end
-
--- error("xxxx")
 return M

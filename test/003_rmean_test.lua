@@ -71,3 +71,26 @@ function g.test_rmean_destroyer()
 
 	t.assert_type(rmean.default:collect(), 'table', 'rmean:collect is callable')
 end
+
+function g.test_rmean_reload()
+	local r = rmean.default:collector('rmean_reload')
+
+	for _ = 1, 100 do
+		r:observe(1)
+	end
+
+	t.assert_is(rmean:get('rmean_reload'), r, 'rmean:get')
+
+	rmean.default:free(r)
+
+	t.assert_is(rmean:get('rmean_reload'), nil, 'freed collector not returned')
+
+	t.assert_is(r.total, 100, 'collector observed total=100')
+
+	rmean.default:reload(r)
+
+	r:observe(1)
+	t.assert_is(r.total, 100, 'collector should freeze its internal state')
+
+	t.assert_is_not(rmean:get('rmean_reload'), r, 'reload creates new collector')
+end
