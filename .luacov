@@ -8,3 +8,11 @@ exclude = {
 	"test/",
 	"benchmarks",
 }
+
+coveralls = {
+	root = "/",
+	debug = true,
+	pathcorrect = {
+			{ "^/home/runner/work/algo/algo/", "" },
+	},
+}
