@@ -1,18 +1,18 @@
 .PHONY := all test
 
 test-deps:
-	tt rocks test --prepare
+	tarantoolctl rocks test --prepare
 
-luacheck:
+luacheck: test-deps
 	.rocks/bin/luacheck .
 
-luatest:
+luatest: test-deps
 	.rocks/bin/luatest -c -v --coverage
 
-coverage:
+coverage: test-deps
 	.rocks/bin/luacov-console $$(pwd) && .rocks/bin/luacov-console -s
 
 test: test-deps luacheck luatest coverage
 
-bench:
+bench: test-deps
 	.rocks/bin/luabench -d 10000x .

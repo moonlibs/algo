@@ -20,6 +20,7 @@ test_dependencies = {
    "luacheck",
    "luatest",
    "luacov",
+   "luacov-coveralls",
    "luacov-console",
    "luabench",
 }
