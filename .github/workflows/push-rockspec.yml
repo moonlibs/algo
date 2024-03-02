@@ -45,7 +45,7 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.MOONLIBS_S3_SECRET_KEY}}
         AWS_EC2_METADATA_DISABLED: true
       run: |
-        cd .build && aws s3 sync s3://moonlibs/ ./ && luarocks-admin make_manifest . && aws s3 sync --acl public-read ./ s3://moonlibs/;
+        cd .build && aws s3 sync s3://moonlibs/ ./ && luarocks-admin make_manifest . && aws s3 sync --cache-control 'max-age: 60' --acl public-read ./ s3://moonlibs/;
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
