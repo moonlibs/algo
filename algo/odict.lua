@@ -48,8 +48,12 @@ end
 -- > you assign any value to a non-existent field in the table.
 -- > You may however modify existing fields. In particular, you
 -- > may clear existing fields.
+---@generic T: table, K, V
+---@param od algo.odict
+---@return fun(table: table<K, V>, index?: K):K, V
+---@return T
 local function _pairs(od)
-    return gen, od, nil
+    return gen, od
 end
 
 -- Delete the key from the id<->key mappings.
@@ -141,6 +145,10 @@ local mt = {
     end,
 }
 
+---@class algo.odict:table
+
+---Creates new OrderedDict
+---@return algo.odict
 local function new()
     local res = setmetatable({}, mt)
     registry[res] = {
