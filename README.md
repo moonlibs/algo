@@ -157,83 +157,6 @@ local rmean = require('algo.rmean')
 local my_collector = rmean.collector('my_collector')
 ```
 
-## Ordered Dictionary (algo.odict)
-
-The collection tracks the order in which the items are added and provides
-`algo.odict.pairs()` function to get them in this order.
-
-The ordered dictionary is a usual Lua table with a specific metatable. All the
-table operations are applicable.
-
-It is similar to Python's [collections.OrderedDict][python-odict].
-
-[python-odict]: https://docs.python.org/3/library/collections.html#collections.OrderedDict
-
-Example:
-
-```lua
-local od = odict.new()
-
-od.a = 1
-od.b = 2
-od.c = 3
-
-print('od.a', od.a) -- 1
-print('od.b', od.b) -- 2
-print('od.c', od.c) -- 3
-
-for k, v in odict.pairs(od) do
-    print(k, v)
-end
--- print: a, 1
--- print: b, 2
--- print: c, 3
-```
-
-If an element is changed (without prior deletion), it remains on the same
-position.
-
-```lua
-local od = odict.new()
-
-od.a = 1
-od.b = 2
-od.c = 3
-
-od.b = 4
-
-for k, v in odict.pairs(od) do
-    print(k, v)
-end
--- print: a, 1
--- print: b, 4
--- print: c, 3
-```
-
-If an element is deleted and added again, it is added to the end.
-
-```lua
-local od = odict.new()
-
-od.a = 1
-od.b = 2
-od.c = 3
-
-od.b = nil
-od.b = 4
-
-for k, v in odict.pairs(od) do
-    print(k, v)
-end
--- print: a, 1
--- print: c, 3
--- print: b, 4
-```
-
-Beware: Tarantool's REPL shows the fields as unordered. The same for the
-serialization into JSON/YAML/MessagePack formats. It should be solved after
-https://github.com/tarantool/tarantool/issues/9747.
-
 #### Observing Values and Calculating Metrics
 
 ```lua
@@ -419,3 +342,80 @@ local my_rmean = rmean.new('my_rmean_instance', 1, 5)
 
 - The system is automatically started when the rmean instance is created. Manual starting is only required if it was previously stopped.
 - The module efficiently handles moving average calculations even with a large number of parallel running collectors and provides high-performance metrics collection capabilities.
+
+## Ordered Dictionary (algo.odict)
+
+The collection tracks the order in which the items are added and provides
+`algo.odict.pairs()` function to get them in this order.
+
+The ordered dictionary is a usual Lua table with a specific metatable. All the
+table operations are applicable.
+
+It is similar to Python's [collections.OrderedDict][python-odict].
+
+[python-odict]: https://docs.python.org/3/library/collections.html#collections.OrderedDict
+
+Example:
+
+```lua
+local od = odict.new()
+
+od.a = 1
+od.b = 2
+od.c = 3
+
+print('od.a', od.a) -- 1
+print('od.b', od.b) -- 2
+print('od.c', od.c) -- 3
+
+for k, v in odict.pairs(od) do
+    print(k, v)
+end
+-- print: a, 1
+-- print: b, 2
+-- print: c, 3
+```
+
+If an element is changed (without prior deletion), it remains on the same
+position.
+
+```lua
+local od = odict.new()
+
+od.a = 1
+od.b = 2
+od.c = 3
+
+od.b = 4
+
+for k, v in odict.pairs(od) do
+    print(k, v)
+end
+-- print: a, 1
+-- print: b, 4
+-- print: c, 3
+```
+
+If an element is deleted and added again, it is added to the end.
+
+```lua
+local od = odict.new()
+
+od.a = 1
+od.b = 2
+od.c = 3
+
+od.b = nil
+od.b = 4
+
+for k, v in odict.pairs(od) do
+    print(k, v)
+end
+-- print: a, 1
+-- print: c, 3
+-- print: b, 4
+```
+
+Beware: Tarantool's REPL shows the fields as unordered. The same for the
+serialization into JSON/YAML/MessagePack formats. It should be solved after
+https://github.com/tarantool/tarantool/issues/9747.
