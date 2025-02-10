@@ -35,5 +35,7 @@ build = {
       ["algo.rlist"] = "algo/rlist.lua",
       ["algo.rmean"] = "algo/rmean.lua",
       ["algo.heap"] = "algo/heap.lua"
+      ["algo.odict"] = "algo/odict.lua"
+      ["algo.skiplist"] = "algo/skiplist.lua"
    }
 }

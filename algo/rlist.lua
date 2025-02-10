@@ -29,7 +29,9 @@ end
 ---@class algo.rlist.item:table
 ---@field prev? algo.rlist.item
 ---@field next? algo.rlist.item
-local rlist_item_mt = {__serialize = __item_serialize}
+
+local rlist_item_mt = {}
+rlist_item_mt.__serialize = __item_serialize
 
 ---@param node table
 local function to_rlist_item(node)

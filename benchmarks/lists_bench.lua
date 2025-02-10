@@ -30,7 +30,7 @@ function M.bench_slist(b)
 	for _ = 1, b.N do
 		local x = math.random(100)
 		cont[1] = x
-		local n = sl:get(cont)
+		local _ = sl:get(cont)
 	end
 end
 
