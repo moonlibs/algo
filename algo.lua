@@ -3,5 +3,6 @@ return {
 	heap  = require 'algo.heap',
 	rmean = require 'algo.rmean',
 	odict = require 'algo.odict',
-	_VERSION = '0.1.0',
+	skiplist = require 'algo.skiplist',
+	_VERSION = '0.2.0',
 }

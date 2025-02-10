@@ -5,25 +5,17 @@ local rlist = require 'algo.rlist'
 local log   = require 'log'
 
 local math_floor = math.floor
-local math_min = math.min
-local math_max = math.max
 local setmetatable = setmetatable
 local table_new = table.new
 local tonumber = tonumber
-local type = type
 
----Appends all k-vs from t2 to t1, if not exists in t1
----@param t1 table?
----@param t2 table?
-local function merge(t1, t2)
-	if type(t1) ~= 'table' or type(t2) ~= 'table' then return end
+local merge = require 'algo.utils'.merge
+local map_mt  = require 'algo.utils'.map_mt
+local weak_mt = require 'algo.utils'.weak_mt
+local new_list = require 'algo.utils'.new_list
+local new_zero_list = require 'algo.utils'.new_zero_list
+local make_list_pretty = require 'algo.utils'.make_list_pretty
 
-	for k in pairs(t2) do
-		if t1[k] == nil then
-			t1[k] = t2[k]
-		end
-	end
-end
 
 ---Class rmean is plain-Lua implementation of Tarantool's rmean collector
 ---
@@ -48,7 +40,7 @@ end
 ---@field _roller_f? Fiber
 
 ---@class algo.rmean.collector.weak:algo.rlist.item
----@field collector algo.rmean.collector weakref to collector
+---@field collector? algo.rmean.collector weakref to collector
 
 ---rmean.collector is named separate counter
 ---@class algo.rmean.collector
@@ -56,9 +48,10 @@ end
 ---@field window number window size of collector (default=5s)
 ---@field size number capacity collector (window/resolution)
 ---@field label_pairs table<string,string> specified label pairs for metrics
----@field sum_value number[] list of sum values per second
----@field min_value number[] list of min values per second
----@field max_value number[] list of max values per second
+---@field sum_value number[] list of sum values per second (running sum)
+---@field hit_value number[] list of hit values per second (running count)
+---@field min_value number[] list of min values per second (running min)
+---@field max_value number[] list of max values per second (running max)
 ---@field total number sum of all values from last reset
 ---@field count number monotonic counter of all collected values from last reset
 ---@field _resolution number length in seconds of each slot
@@ -66,10 +59,6 @@ end
 ---@field _gc_hook ffi.cdata* gc-hook to track collector was gc-ed
 ---@field _invalid? boolean is set to true when collector was freed from previous rmean
 local collector = {}
-
-local map_mt  = { __serialize = 'map' }
-local list_mt = { __serialize = 'seq' }
-local weak_mt = { __mode = 'v' }
 
 local collector_mt = {
 	__index = collector,
@@ -92,36 +81,11 @@ local collector_mt = {
 			window = self.window,
 			min = self:min(),
 			max = self:max(),
+			mean = self:mean(),
 			per_second = self:per_second(),
 		}, map_mt)
 	end
 }
-
---#region algo.rmean.utils
-
----Creates new list with null values
----@param size number
----@private
----@return number[]
-local function new_list(size)
-	size = math_floor(size)
-	local t = setmetatable(table_new(size, 0), list_mt)
-	return t
-end
-
----Creates new list with zero values
----@param size number
----@private
----@return number[]
-local function new_zero_list(size)
-	local t = new_list(size)
-	-- we start iteration from 0
-	-- we abuse how lua stores arrays
-	for i = 0, size do
-		t[i] = 0
-	end
-	return t
-end
 
 ---@param depth number
 ---@param max_value number
@@ -142,15 +106,6 @@ local function _get_depth(depth, max_value)
 	return depth
 end
 
-local function _list_serialize(list)
-	local r = {}
-	for i = 1, #list do
-		r[i] = tostring(list[i])
-	end
-	return r
-end
-
---#endregion
 
 ---fiber roller of registered collectors
 ---@private
@@ -231,11 +186,13 @@ function rmean_methods:collector(name, window)
 
 	window = tonumber(window) or self.window
 	local size = math_floor(window/self._resolution)
+
 	local remote = setmetatable({
 		name = name,
 		window = window,
 		size = size,
 		sum_value = new_zero_list(size),
+		hit_value = new_zero_list(size),
 		min_value = new_list(size),
 		max_value = new_list(size),
 		label_pairs = { name = name, window = window },
@@ -244,6 +201,9 @@ function rmean_methods:collector(name, window)
 		__version = 1,
 		_resolution = self._resolution,
 	}, collector_mt)
+
+	-- cache hot function into object itself
+	remote.observe = remote.observe
 
 	---@type algo.rmean.collector.weak
 	local _item = setmetatable({ collector = remote }, weak_mt)
@@ -267,8 +227,9 @@ end
 ---@return algo.rmean.collector
 function rmean_methods:reload(counter)
 	-- ? check __version
-	local new = self:collector(counter.name)
+	local new = self:collector(counter.name, counter.window)
 	new.sum_value = counter.sum_value
+	new.hit_value = counter.hit_value
 	new.count = counter.count
 	new.total = counter.total
 	new.max_value = counter.max_value
@@ -298,7 +259,7 @@ function rmean_methods:getall()
 	local rv = table_new(self._collectors.count, 0)
 	local n = 0
 
-	setmetatable(rv, {__serialize = _list_serialize})
+	make_list_pretty(rv)
 
 	for _, cursor in self._collectors:pairs() do
 		---@cast cursor algo.rmean.collector.weak
@@ -313,7 +274,7 @@ end
 
 ---returns registered collector by name
 ---@param name string
----@return algo.rmean.collector?
+---@return algo.rmean.collector|algo.rmean.collector[]|nil
 function rmean_methods:get(name)
 	if not name then
 		return self:getall()
@@ -337,7 +298,7 @@ end
 
 ---metrics collect hook
 function rmean_methods:collect()
-	local result = table.new(self._collectors.count*6, 0)
+	local result = table_new(self._collectors.count*6, 0)
 	local label_pairs
 	if self.metrics_registry then
 		label_pairs = self.metrics_registry.label_pairs
@@ -363,18 +324,6 @@ end
 
 --#region algo.rmean.collector
 
----Calculates and returns per_second value
----@param depth integer? depth in seconds (default=window size, [1,window size])
----@return number
-function collector:per_second(depth)
-	depth = _get_depth(depth, self.window)
-	local sum = 0
-	for i = 1, depth/self._resolution do
-		sum = sum + self.sum_value[i]
-	end
-	return sum / depth
-end
-
 function collector:set_labels(label_pairs)
 	self.label_pairs = table.copy(label_pairs)
 	self.label_pairs.window = tostring(self.window)
@@ -387,13 +336,13 @@ end
 function collector:min(depth)
 	depth = _get_depth(depth, self.window)
 
-	local min
+	local _min
 	for i = 1, depth/self._resolution do
-		if not min or (self.min_value[i] and min > self.min_value[i]) then
-			min = self.min_value[i]
+		if not _min or (self.min_value[i] and _min > self.min_value[i]) then
+			_min = self.min_value[i]
 		end
 	end
-	return min
+	return _min
 end
 
 ---Returns moving max value
@@ -402,18 +351,21 @@ end
 function collector:max(depth)
 	depth = _get_depth(depth, self.window)
 
-	local max
+	local _max
 	for i = 1, depth/self._resolution do
-		if not max or (self.max_value[i] and max < self.max_value[i]) then
-			max = self.max_value[i]
+		if not _max or (self.max_value[i] and _max < self.max_value[i]) then
+			_max = self.max_value[i]
 		end
 	end
-	return max
+	return _max
 end
 
 ---Returns moving sum value
+---
+---Equivalent to SUM(VALUE[0:depth])
+---
 ---@param depth integer? depth in seconds (default=window size, [1,window size])
----@return number? sum # can return null if no values were observed
+---@return number sum
 function collector:sum(depth)
 	depth = _get_depth(depth, self.window)
 
@@ -424,6 +376,61 @@ function collector:sum(depth)
 	return sum
 end
 
+--- Returns moving count value
+---
+--- Equivalent to COUNT(VALUE[0:depth])
+---
+---@param depth integer? depth in seconds (default=window size, [1,window size])
+---@return number count
+function collector:hits(depth)
+	depth = _get_depth(depth, self.window)
+
+	local count = 0
+	for i = 1, depth/self._resolution do
+		count = count + self.hit_value[i]
+	end
+	return count
+end
+
+---Calculates and returns moving average value with given depth
+---
+---Equivalent to SUM(VALUE[0:depth]) / COUNT(VALUE[0:depth])
+---
+---@param depth integer? depth in seconds (default=window size, [1,window size])
+---@return number average
+function collector:mean(depth)
+	depth = _get_depth(depth, self.window)
+
+	local sum = 0
+	local count = 0
+	for i = 1, depth/self._resolution do
+		sum = sum + self.sum_value[i]
+		count = count + self.hit_value[i]
+	end
+	if count == 0 then
+		return 0
+	end
+	return sum / count
+end
+
+---Calculates and returns moving sum value devided by depth
+---
+---Equivalent to SUM(values[0:depth]) / depth
+---
+---It has the same meaning as average 'per second' sum of values
+---
+---Usefull for calculating average hits per second (such as rps or sizes)
+---@param depth integer? depth in seconds (default=window size, [1,window size])
+---@return number
+function collector:per_second(depth)
+	depth = _get_depth(depth, self.window)
+	local sum = 0
+	for i = 1, depth/self._resolution do
+		sum = sum + self.sum_value[i]
+	end
+	return sum / depth
+end
+
 ---Increments current time bucket with given value
 ---@param value number|uint64_t|integer64
 function collector:observe(value)
@@ -432,11 +439,20 @@ function collector:observe(value)
 	if not value then return end
 
 	self.sum_value[0] = self.sum_value[0] + value
+	self.hit_value[0] = self.hit_value[0] + 1
 	self.total = self.total + value
 	self.count = self.count + 1
 
-	self.min_value[0] = math_min(self.min_value[0] or value, value)
-	self.max_value[0] = math_max(self.max_value[0] or value, value)
+	if self.min_value[0] then
+		if value < self.min_value[0] then
+			self.min_value[0] = value
+		elseif value > self.max_value[0] then
+			self.max_value[0] = value
+		end
+	else
+		self.min_value[0] = value
+		self.max_value[0] = value
+	end
 end
 
 -- inc is alias for observe
@@ -451,6 +467,7 @@ function collector:collect()
 			timestamp = fiber.time64(),
 		},
 		{ metric_name = 'rmean_sum',   value = self:sum(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
+		{ metric_name = 'rmean_mean',  value = self:mean(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
 		{ metric_name = 'rmean_min',   value = self:min(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
 		{ metric_name = 'rmean_max',   value = self:max(),  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
 		{ metric_name = 'rmean_total', value = self.total,  label_pairs = self.label_pairs,  timestamp = fiber.time64() },
@@ -459,27 +476,30 @@ function collector:collect()
 end
 
 ---Rerolls statistics
----@param dt number
+---@param dt number delta time
 function collector:roll(dt)
 	if self._invalid then return end
 	if dt < 0 then return end
 	local sum = self.sum_value
 	local min = self.min_value
 	local max = self.max_value
+	local hit = self.hit_value
 	local avg = sum[0] / dt
 	local j = math_floor(self.size)
 	while j > dt+0.1 do
 		if j > 0 then
-			sum[j], min[j], max[j] = sum[j-1], min[j-1], max[j-1]
+			sum[j], min[j], max[j], hit[j] = sum[j-1], min[j-1], max[j-1], hit[j-1]
 		else
+			-- j == 0
 			sum[j] = avg
 		end
 		j = j - 1
 	end
 	for i = j, 1, -1 do
-		sum[i], min[i], max[i] = avg, min[0], max[0]
+		sum[i], min[i], max[i], hit[i] = avg, min[0], max[0], hit[0]
 	end
 	sum[0] = 0
+	hit[0] = 0
 	min[0] = nil
 	max[0] = nil
 end
@@ -488,9 +508,10 @@ end
 function collector:reset()
 	for i = 0, self.size do
 		self.sum_value[i] = 0
+		self.hit_value[i] = 0
+		self.min_value[i] = math.huge
+		self.max_value[i] = -math.huge
 	end
-	table.clear(self.min_value)
-	table.clear(self.max_value)
 	self.total = 0
 	self.count = 0
 end

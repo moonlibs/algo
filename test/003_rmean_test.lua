@@ -55,6 +55,7 @@ function g.test_rmean_destroyer()
 	t.assert_covers(clt, {
 		{ metric_name = 'rmean_per_second', value = 0, label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
 		{ metric_name = 'rmean_sum', value = 0, label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
+		{ metric_name = 'rmean_mean', value = 0, label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
 		{ metric_name = 'rmean_min', label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
 		{ metric_name = 'rmean_max', label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
 		{ metric_name = 'rmean_total', value = 100, label_pairs = { window = 5, name = 'anon' }, timestamp = fiber.time64() },
