@@ -376,6 +376,22 @@ function collector:sum(depth)
 	return sum
 end
 
+--- Returns moving count value
+---
+--- Equivalent to COUNT(VALUE[0:depth])
+---
+---@param depth integer? depth in seconds (default=window size, [1,window size])
+---@return number count
+function collector:hits(depth)
+	depth = _get_depth(depth, self.window)
+
+	local count = 0
+	for i = 1, depth/self._resolution do
+		count = count + self.hit_value[i]
+	end
+	return count
+end
+
 ---Calculates and returns moving average value with given depth
 ---
 ---Equivalent to SUM(VALUE[0:depth]) / COUNT(VALUE[0:depth])
@@ -474,12 +490,13 @@ function collector:roll(dt)
 		if j > 0 then
 			sum[j], min[j], max[j], hit[j] = sum[j-1], min[j-1], max[j-1], hit[j-1]
 		else
+			-- j == 0
 			sum[j] = avg
 		end
 		j = j - 1
 	end
 	for i = j, 1, -1 do
-		sum[i], min[i], max[i], hit[i] = avg, min[0], max[0], hit[i]
+		sum[i], min[i], max[i], hit[i] = avg, min[0], max[0], hit[0]
 	end
 	sum[0] = 0
 	hit[0] = 0
